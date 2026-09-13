@@ -1,663 +1,110 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Windows 11 Real-Time Desktop Task Widget</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Tone.js for web audio notifications -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0f172a;
-            color: #f8fafc;
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: rgba(15, 23, 42, 0.6);
-        }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.4);
-        }
-        /* Glassmorphism effect for Desktop Widget */
-        .glass-widget {
-            background: rgba(15, 23, 42, 0.65);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        }
-        .windows-wallpaper {
-            background-image: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.3), transparent 70%),
-                              radial-gradient(circle at 80% 20%, rgba(147, 51, 234, 0.3), transparent 50%),
-                              url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1920&auto=format&fit=crop');
-            background-size: cover;
-            background-position: center;
-        }
-        /* Desktop notification popup animation */
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-        .toast-notification {
-            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Desktop Task Widget</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; }
+    body {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      color: white;
+      padding: 16px;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-app-region: drag; /* Agar widget bisa digeser */
+    }
+    .header { font-size: 14px; font-weight: 700; color: #38bdf8; margin-bottom: 12px; display: flex; justify-content: space-between; }
+    .task-item {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      -webkit-app-region: no-drag; /* Area tombol bisa diklik */
+    }
+    .task-item.completed { opacity: 0.5; text-decoration: line-through; }
+    .task-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .task-meta { font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; }
+    .btn-done {
+      background: #10b981; border: none; color: white; padding: 4px 8px;
+      border-radius: 4px; font-size: 11px; cursor: pointer;
+    }
+  </style>
 </head>
-<body class="h-screen flex flex-col overflow-hidden bg-slate-950 text-slate-100">
+<body>
+  <div class="header">
+    <span>📋 TUGAS HARI INI</span>
+    <span id="task-count">0</span>
+  </div>
+  <div id="task-container">Memuat tugas...</div>
 
-    <!-- Top Navigation Header -->
-    <header class="bg-slate-900/80 border-b border-slate-800 px-6 py-3 flex justify-between items-center z-20">
-        <div class="flex items-center gap-3">
-            <div class="p-2 bg-blue-600/20 text-blue-400 rounded-lg border border-blue-500/30">
-                <i data-lucide="layout-grid" class="w-5 h-5"></i>
-            </div>
-            <div>
-                <h1 class="font-bold text-base text-slate-100 flex items-center gap-2">
-                    TaskSync Desktop <span class="text-xs font-normal px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">Opsi 3: Electron + Live Sync</span>
-                </h1>
-                <p class="text-xs text-slate-400">Widget Desktop Real-Time dengan Sistem Notifikasi Windows 11</p>
-            </div>
-        </div>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script>
+    // System Notification Window
+    function showWindowsNotification(title, body) {
+      if (Notification.permission === "granted") {
+        new Notification(title, { body: body });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then(perm => {
+          if (perm === "granted") new Notification(title, { body: body });
+        });
+      }
+    }
 
-        <!-- Navigation Tabs -->
-        <div class="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
-            <button id="tab-preview" onclick="switchTab('preview')" class="px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 bg-blue-600 text-white shadow-sm">
-                <i data-lucide="monitor" class="w-3.5 h-3.5"></i> Live Simulation (Desktop & Toast)
-            </button>
-            <button id="tab-admin" onclick="switchTab('admin')" class="px-4 py-1.5 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-all flex items-center gap-2">
-                <i data-lucide="user-check" class="w-3.5 h-3.5"></i> Admin Task Dispatcher
-            </button>
-            <button id="tab-code" onclick="switchTab('code')" class="px-4 py-1.5 text-xs font-medium rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-900 transition-all flex items-center gap-2">
-                <i data-lucide="code" class="w-3.5 h-3.5"></i> Kode Electron.js & Windows Setting
-            </button>
-        </div>
-    </header>
+    // PASTE FIREBASE CONFIG ANDA DI SINI
+    const firebaseConfig = {
+      apiKey: "PASTE_API_KEY_ANDA",
+      authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
+      databaseURL: "https://PASTE_PROJECT_ID-default-rtdb.firebaseio.com",
+      projectId: "PASTE_PROJECT_ID",
+      storageBucket: "PASTE_PROJECT_ID.appspot.com",
+      messagingSenderId: "...",
+      appId: "..."
+    };
 
-    <main class="flex-1 relative overflow-hidden flex">
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    let initialLoad = true;
 
-        <!-- ================= SECTION 1: LIVE SIMULATION & WIDGET PREVIEW ================= -->
-        <div id="section-preview" class="w-full h-full flex flex-col">
-            <!-- Top Controls Bar -->
-            <div class="bg-slate-900/50 border-b border-slate-800 px-6 py-2.5 flex justify-between items-center">
-                <div class="flex items-center gap-4">
-                    <span class="text-xs text-slate-400 flex items-center gap-1.5">
-                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse">
-                        </span> Realtime WebSocket: <strong class="text-slate-200">Terhubung</strong>
-                    </span>
-                    <div class="h-4 w-px bg-slate-800"></div>
-                    <label class="text-xs text-slate-300 flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" id="toggle-sound" checked onchange="toggleSoundSetting()" class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0">
-                        <i data-lucide="volume-2" class="w-3.5 h-3.5 text-blue-400"></i> Suara Notifikasi (Audio Alert)
-                    </label>
-                    <label class="text-xs text-slate-300 flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" id="toggle-toast" checked class="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0">
-                        <i data-lucide="bell" class="w-3.5 h-3.5 text-amber-400"></i> Windows Native Toast Popup
-                    </label>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="triggerSampleNotification()" class="px-3 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-md flex items-center gap-1.5 transition-all">
-                        <i data-lucide="zap" class="w-3.5 h-3.5"></i> Tes Notifikasi Tugas Baru
-                    </button>
-                </div>
-            </div>
+    // Listen data real-time
+    db.ref('tasks').on('value', (snapshot) => {
+      const tasks = snapshot.val() || {};
+      const container = document.getElementById('task-container');
+      container.innerHTML = '';
+      let count = 0;
 
-            <!-- Windows Desktop Simulation Area -->
-            <div class="flex-1 relative windows-wallpaper p-6 flex items-start justify-end overflow-hidden">
-                
-                <!-- Desktop Wallpaper Overlay Info -->
-                <div class="absolute bottom-6 left-6 pointer-events-none select-none text-slate-200/60 drop-shadow">
-                    <div class="text-5xl font-extralight tracking-tight" id="clock-display">14:32</div>
-                    <div class="text-sm font-light mt-1" id="date-display">Senin, 14 Oktober 2026</div>
-                    <p class="text-xs mt-2 text-slate-300/40">Simulasi Tampilan Desktop Laptop Karyawan (Windows 11)</p>
-                </div>
+      Object.keys(tasks).forEach(id => {
+        const task = tasks[id];
+        count++;
+        const item = document.createElement('div');
+        item.className = `task-item ${task.status === 'done' ? 'completed' : ''}`;
+        item.innerHTML = `
+          <div class="task-title">${task.text}</div>
+          <div class="task-meta">
+            <span>Diset ke: ${task.assignee || 'Semua'}</span>
+            ${task.status !== 'done' ? `<button class="btn-done" onclick="markDone('${id}')">Selesai</button>` : '<span>✓ Selesai</span>'}
+          </div>
+        `;
+        container.appendChild(item);
+      });
 
-                <!-- THE DESKTOP WIDGET -->
-                <div class="w-96 glass-widget rounded-2xl overflow-hidden shadow-2xl transition-all duration-300 z-10">
-                    <!-- Widget Header -->
-                    <div class="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900/40">
-                        <div class="flex items-center gap-2.5">
-                            <div class="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping"></div>
-                            <h2 class="font-semibold text-sm text-white tracking-wide flex items-center gap-1.5">
-                                <i data-lucide="check-square" class="w-4 h-4 text-blue-400"></i> DOKUMEN TUGAS HARI INI
-                            </h2>
-                        </div>
-                        <div class="flex items-center gap-1.5">
-                            <span id="task-count-badge" class="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-500/30 text-blue-200 border border-blue-400/30">0 Tugas</span>
-                        </div>
-                    </div>
+      document.getElementById('task-count').innerText = count;
 
-                    <!-- Assignee Selector Filter for Demo -->
-                    <div class="px-4 py-2 bg-slate-950/40 border-b border-white/5 flex items-center justify-between text-xs">
-                        <span class="text-slate-400">Tampilan Karyawan:</span>
-                        <select id="user-filter" onchange="renderWidgetTasks()" class="bg-slate-900 text-slate-200 border border-slate-700/60 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500">
-                            <option value="all">Semua Karyawan (Admin View)</option>
-                            <option value="Budi Santoso">Budi Santoso (Desain)</option>
-                            <option value="Siti Rahma">Siti Rahma (Frontend)</option>
-                            <option value="Andi Wijaya">Andi Wijaya (Backend)</option>
-                        </select>
-                    </div>
-
-                    <!-- Task List Container -->
-                    <div id="widget-task-list" class="max-h-[380px] overflow-y-auto p-3 space-y-2.5">
-                        <!-- Dynamic Tasks Inserted Here -->
-                    </div>
-
-                    <!-- Widget Footer Status -->
-                    <div class="p-3 border-t border-white/10 bg-slate-900/50 flex items-center justify-between text-[11px] text-slate-400">
-                        <span class="flex items-center gap-1.5">
-                            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i> Menempel di Wallpaper
-                        </span>
-                        <span class="text-slate-500">Auto-Sync 1s</span>
-                    </div>
-                </div>
-
-                <!-- Simulated Windows 11 Toast Notification Container -->
-                <div id="toast-container" class="absolute bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-                    <!-- Dynamic Toast Notifications Pop Up Here -->
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= SECTION 2: ADMIN CONTROL PANEL ================= -->
-        <div id="section-admin" class="w-full h-full p-6 overflow-y-auto hidden">
-            <div class="max-w-5xl mx-auto space-y-6">
-                <!-- Header Info -->
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl flex justify-between items-center">
-                    <div>
-                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                            <i data-lucide="user-cog" class="w-5 h-5 text-blue-400"></i> Panel Kontrol Atasan / Admin
-                        </h2>
-                        <p class="text-xs text-slate-400 mt-1">Tambahkan tugas baru untuk karyawan. Tugas akan langsung muncul di widget desktop mereka secara instan.</p>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <div class="text-right">
-                            <p class="text-xs text-slate-400">Total Tugas Aktif</p>
-                            <p class="text-xl font-bold text-blue-400" id="admin-total-tasks">0</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <!-- Form Input Task -->
-                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4">
-                        <h3 class="font-semibold text-sm text-slate-200 border-b border-slate-800 pb-2 flex items-center gap-2">
-                            <i data-lucide="plus-circle" class="w-4 h-4 text-emerald-400"></i> Berikan Tugas Baru
-                        </h3>
-                        
-                        <form id="add-task-form" onsubmit="handleAddTask(event)" class="space-y-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Judul Tugas / Instruksi</label>
-                                <input type="text" id="input-title" required placeholder="Cth: Revisi Banner Promosi Promo Mei" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Tugaskan Kepada (Karyawan)</label>
-                                <select id="input-assignee" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500">
-                                    <option value="Budi Santoso">Budi Santoso (Desain)</option>
-                                    <option value="Siti Rahma">Siti Rahma (Frontend)</option>
-                                    <option value="Andi Wijaya">Andi Wijaya (Backend)</option>
-                                </select>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">Prioritas</label>
-                                    <select id="input-priority" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-blue-500">
-                                        <option value="Sedang">Sedang</option>
-                                        <option value="Tinggi">Tinggi (Urgent)</option>
-                                        <option value="Rendah">Rendah</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs text-slate-400 mb-1">Deadline</label>
-                                    <input type="text" id="input-deadline" placeholder="Hari ini, 17:00" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-blue-500">
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Catatan Tambahan (Opsional)</label>
-                                <textarea id="input-desc" rows="2" placeholder="Detail spesifikasi pekerjaan..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500"></textarea>
-                            </div>
-
-                            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs py-2.5 rounded-lg transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20">
-                                <i data-lucide="send" class="w-4 h-4"></i> Kirim ke Desktop Karyawan
-                            </button>
-                        </form>
-                    </div>
-
-                    <!-- Task Management Table -->
-                    <div class="md:col-span-2 bg-slate-900 border border-slate-800 p-5 rounded-xl flex flex-col">
-                        <h3 class="font-semibold text-sm text-slate-200 border-b border-slate-800 pb-3 flex items-center justify-between">
-                            <span class="flex items-center gap-2"><i data-lucide="list" class="w-4 h-4 text-blue-400"></i> Status Seluruh Tugas Karyawan</span>
-                            <span class="text-xs font-normal text-slate-400">Real-time Synchronization</span>
-                        </h3>
-
-                        <div class="overflow-x-auto mt-3 flex-1">
-                            <table class="w-full text-left border-collapse">
-                                <thead>
-                                    <tr class="border-b border-slate-800 text-[11px] text-slate-400">
-                                        <th class="py-2 px-3">Tugas</th>
-                                        <th class="py-2 px-3">Penerima</th>
-                                        <th class="py-2 px-3">Prioritas</th>
-                                        <th class="py-2 px-3">Status</th>
-                                        <th class="py-2 px-3 text-right">Aksi</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="admin-task-table" class="text-xs divide-y divide-slate-800/50">
-                                    <!-- Dynamic Rows -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= SECTION 3: ELECTRON CODE & INSTRUCTIONS ================= -->
-        <div id="section-code" class="w-full h-full p-6 overflow-y-auto hidden">
-            <div class="max-w-4xl mx-auto space-y-6">
-                
-                <div class="bg-blue-900/20 border border-blue-500/30 p-5 rounded-xl">
-                    <h2 class="text-base font-bold text-blue-200 flex items-center gap-2">
-                        <i data-lucide="terminal" class="w-5 h-5 text-blue-400"></i> Cara Membuat Widget Menempel di Desktop Windows (Electron.js)
-                    </h2>
-                    <p class="text-xs text-slate-300 mt-2 leading-relaxed">
-                        Agar tampilan web (Opsi 3) bisa **menempel permanen di wallpaper desktop** tanpa window frame, tanpa tombol minimize/close, dan bisa mengirim notifikasi bawaan Windows, gunakan skrip **Electron.js** di bawah ini pada laptop karyawan.
-                    </p>
-                </div>
-
-                <!-- Code Block 1: main.js -->
-                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                    <div class="bg-slate-950 px-4 py-2.5 border-b border-slate-800 flex justify-between items-center">
-                        <span class="text-xs font-mono text-slate-300 flex items-center gap-2">
-                            <i data-lucide="file-code" class="w-4 h-4 text-amber-400"></i> main.js (Konfigurasi Desktop Framing)
-                        </span>
-                        <button onclick="copyCode('code-main')" class="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin Kode
-                        </button>
-                    </div>
-                    <pre class="p-4 text-xs font-mono text-slate-300 overflow-x-auto bg-slate-950/50"><code id="code-main">// main.js - Electron Main Process
-const { app, BrowserWindow, Notification } = require('electron');
-const path = require('path');
-
-let mainWindow;
-
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 400,
-        height: 600,
-        x: 50, // Posisi di desktop (Kiri)
-        y: 100,
-        frame: false,            // Hilangkan border & tombol close/minimize
-        transparent: true,        // Membuat background transparan (Glassmorphism)
-        resizable: false,
-        skipTaskbar: true,       // Tidak muncul di Taskbar Windows
-        type: 'desktop',         // Menempel di latar desktop
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
-        }
+      // Berikan notifikasi jika ada pembaruan setelah load pertama
+      if (!initialLoad) {
+        showWindowsNotification("Tugas Diperbarui!", "Ada tugas baru atau perubahan pada daftar tugas Anda.");
+      }
+      initialLoad = false;
     });
 
-    // Muat aplikasi web widget Anda (misal hosted di Vercel/Firebase atau local file)
-    mainWindow.loadURL('https://tugas-karyawan-app.web.app');
-
-    // Menjaga agar widget selalu di lapisan bawah wallpaper (Desktop Level)
-    mainWindow.setAlwaysOnTop(false);
-}
-
-// Fungsi Pemicu Notifikasi Asli Windows 11
-function showWindowsNotification(title, body) {
-    if (Notification.isSupported()) {
-        new Notification({
-            title: title || 'Tugas Baru Diterima!',
-            body: body || 'Ada instruksi baru dari atasan Anda.',
-            icon: path.join(__dirname, 'icon.png'), // Opsional icon
-            silent: false // Menghasilkan suara notifikasi Windows
-        }).show();
+    function markDone(id) {
+      db.ref('tasks/' + id).update({ status: 'done' });
     }
-}
-
-app.whenReady().then(createWindow);
-</code></pre>
-                </div>
-
-                <!-- Step-by-Step Instructions -->
-                <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-3">
-                    <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                        <i data-lucide="list-checks" class="w-4 h-4 text-emerald-400"></i> Langkah Menjalankan di Laptop Karyawan:
-                    </h3>
-                    <ol class="list-decimal list-inside text-xs text-slate-300 space-y-2 leading-relaxed">
-                        <li>Install <strong>Node.js</strong> di laptop karyawan.</li>
-                        <li>Buat folder baru (misal: <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-300">task-widget</code>), lalu jalankan <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-300">npm init -y</code> di terminal.</li>
-                        <li>Install Electron: <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-300">npm install electron --save-dev</code>.</li>
-                        <li>Simpan skrip di atas sebagai <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-300">main.js</code>.</li>
-                        <li>Jalankan widget: <code class="bg-slate-800 px-1.5 py-0.5 rounded text-amber-300">npx electron .</code>. Widget akan langsung melayang transparan di atas wallpaper Windows!</li>
-                    </ol>
-                </div>
-
-            </div>
-        </div>
-
-    </main>
-
-    <script>
-        // In-Memory Task Data State (Simulating Firebase Realtime Database)
-        let tasks = [
-            {
-                id: 1,
-                title: "Desain Banner Promo Shopee 11.11",
-                assignee: "Budi Santoso",
-                priority: "Tinggi",
-                deadline: "Hari ini, 16:00",
-                status: "In Progress", // Pending, In Progress, Done
-                desc: "Gunakan tema warna merah biru dan sertakan logo produk baru."
-            },
-            {
-                id: 2,
-                title: "Fix Bug Form Login Gagal di Chrome",
-                assignee: "Siti Rahma",
-                priority: "Tinggi",
-                deadline: "Besok, 10:00",
-                status: "Pending",
-                desc: "Pengguna melaporkan tombol submit tidak merespons."
-            },
-            {
-                id: 3,
-                title: "Update Database Schema User Role",
-                assignee: "Andi Wijaya",
-                priority: "Sedang",
-                deadline: "15 Okt, 12:00",
-                status: "Done",
-                desc: "Tambahkan kolom permissions pada tabel admin."
-            }
-        ];
-
-        let soundEnabled = true;
-
-        window.onload = function() {
-            lucide.createIcons();
-            updateClock();
-            setInterval(updateClock, 1000);
-            renderWidgetTasks();
-            renderAdminTable();
-        };
-
-        // Realtime Clock Display for Windows Wallpaper Simulation
-        function updateClock() {
-            const now = new Date();
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            document.getElementById('clock-display').innerText = `${hours}:${minutes}`;
-
-            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            document.getElementById('date-display').innerText = now.toLocaleDateString('id-ID', options);
-        }
-
-        // Switch Navigation Tabs
-        function switchTab(tabName) {
-            document.getElementById('section-preview').classList.add('hidden');
-            document.getElementById('section-admin').classList.add('hidden');
-            document.getElementById('section-code').classList.add('hidden');
-
-            document.getElementById('tab-preview').className = "px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-900";
-            document.getElementById('tab-admin').className = "px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-900";
-            document.getElementById('tab-code').className = "px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 text-slate-400 hover:text-slate-200 hover:bg-slate-900";
-
-            if (tabName === 'preview') {
-                document.getElementById('section-preview').classList.remove('hidden');
-                document.getElementById('tab-preview').className = "px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 bg-blue-600 text-white shadow-sm";
-            } else if (tabName === 'admin') {
-                document.getElementById('section-admin').classList.remove('hidden');
-                document.getElementById('tab-admin').className = "px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 bg-blue-600 text-white shadow-sm";
-            } else if (tabName === 'code') {
-                document.getElementById('section-code').classList.remove('hidden');
-                document.getElementById('tab-code').className = "px-4 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-2 bg-blue-600 text-white shadow-sm";
-            }
-        }
-
-        function renderWidgetTasks() {
-            const container = document.getElementById('widget-task-list');
-            const filterUser = document.getElementById('user-filter').value;
-            
-            const filteredTasks = filterUser === 'all' 
-                ? tasks 
-                : tasks.filter(t => t.assignee === filterUser);
-
-            document.getElementById('task-count-badge').innerText = `${filteredTasks.length} Tugas`;
-
-            if (filteredTasks.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center py-8 text-slate-400">
-                        <i data-lucide="check-circle-2" class="w-8 h-8 mx-auto text-slate-500 mb-2"></i>
-                        <p class="text-xs">Tidak ada tugas aktif untuk karyawan ini.</p>
-                    </div>
-                `;
-                lucide.createIcons();
-                return;
-            }
-
-            container.innerHTML = filteredTasks.map(task => {
-                let statusBadge = '';
-                let statusBorder = '';
-                
-                if (task.status === 'Pending') {
-                    statusBadge = `<span class="px-2 py-0.5 text-[10px] rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium">Belum Dikerjakan</span>`;
-                    statusBorder = 'border-l-4 border-l-amber-500';
-                } else if (task.status === 'In Progress') {
-                    statusBadge = `<span class="px-2 py-0.5 text-[10px] rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium animate-pulse">Sedang Dikerjakan</span>`;
-                    statusBorder = 'border-l-4 border-l-blue-500';
-                } else {
-                    statusBadge = `<span class="px-2 py-0.5 text-[10px] rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">Selesai</span>`;
-                    statusBorder = 'border-l-4 border-l-emerald-500 opacity-75';
-                }
-
-                let priorityColor = task.priority === 'Tinggi' ? 'text-red-400' : 'text-slate-400';
-
-                return `
-                    <div class="bg-slate-900/70 hover:bg-slate-900/90 transition-all p-3 rounded-lg border border-white/10 ${statusBorder} space-y-2">
-                        <div class="flex items-start justify-between gap-2">
-                            <h4 class="font-medium text-xs text-white leading-snug">${task.title}</h4>
-                            ${statusBadge}
-                        </div>
-
-                        ${task.desc ? `<p class="text-[11px] text-slate-300 line-clamp-2 bg-black/20 p-1.5 rounded">${task.desc}</p>` : ''}
-
-                        <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-white/5">
-                            <span class="flex items-center gap-1"><i data-lucide="user" class="w-3 h-3"></i> ${task.assignee}</span>
-                            <span class="flex items-center gap-1 ${priorityColor}"><i data-lucide="clock" class="w-3 h-3"></i> ${task.deadline}</span>
-                        </div>
-
-                        <!-- Interactive Status Buttons for Employee -->
-                        <div class="flex gap-1 pt-1">
-                            ${task.status !== 'In Progress' && task.status !== 'Done' ? 
-                                `<button onclick="updateTaskStatus(${task.id}, 'In Progress')" class="flex-1 py-1 bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 rounded text-[10px] font-medium transition-all">Kerjakan</button>` : ''}
-                            ${task.status !== 'Done' ? 
-                                `<button onclick="updateTaskStatus(${task.id}, 'Done')" class="flex-1 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 rounded text-[10px] font-medium transition-all">Tandai Selesai</button>` : ''}
-                            ${task.status === 'Done' ? 
-                                `<span class="text-[10px] text-emerald-400 flex items-center gap-1 italic"><i data-lucide="check" class="w-3 h-3"></i> Menunggu Verifikasi Atasan</span>` : ''}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            lucide.createIcons();
-        }
-
-        function renderAdminTable() {
-            const tableBody = document.getElementById('admin-task-table');
-            document.getElementById('admin-total-tasks').innerText = tasks.length;
-
-            tableBody.innerHTML = tasks.map(task => `
-                <tr class="hover:bg-slate-800/40 transition-all">
-                    <td class="py-2.5 px-3 font-medium text-slate-200">
-                        ${task.title}
-                        <div class="text-[10px] text-slate-400">${task.deadline}</div>
-                    </td>
-                    <td class="py-2.5 px-3 text-slate-300">${task.assignee}</td>
-                    <td class="py-2.5 px-3">
-                        <span class="px-2 py-0.5 text-[10px] rounded ${task.priority === 'Tinggi' ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'bg-slate-800 text-slate-300'}">
-                            ${task.priority}
-                        </span>
-                    </td>
-                    <td class="py-2.5 px-3">
-                        <select onchange="updateTaskStatus(${task.id}, this.value)" class="bg-slate-950 border border-slate-700 text-slate-200 rounded px-2 py-1 text-[11px]">
-                            <option value="Pending" ${task.status === 'Pending' ? 'selected' : ''}>Pending</option>
-                            <option value="In Progress" ${task.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
-                            <option value="Done" ${task.status === 'Done' ? 'selected' : ''}>Done</option>
-                        </select>
-                    </td>
-                    <td class="py-2.5 px-3 text-right">
-                        <button onclick="deleteTask(${task.id})" class="p-1 text-slate-400 hover:text-red-400 transition-all">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-
-            lucide.createIcons();
-        }
-
-        function handleAddTask(e) {
-            e.preventDefault();
-            const title = document.getElementById('input-title').value;
-            const assignee = document.getElementById('input-assignee').value;
-            const priority = document.getElementById('input-priority').value;
-            const deadline = document.getElementById('input-deadline').value || 'Hari ini';
-            const desc = document.getElementById('input-desc').value;
-
-            const newTask = {
-                id: Date.now(),
-                title,
-                assignee,
-                priority,
-                deadline,
-                status: 'Pending',
-                desc
-            };
-
-            tasks.unshift(newTask);
-            document.getElementById('add-task-form').reset();
-            
-            // Re-render views
-            renderWidgetTasks();
-            renderAdminTable();
-
-            // Trigger Real-time Sound & Windows Toast Alert
-            playNotificationSound();
-            showWindowsToastNotification(`Tugas Baru untuk ${assignee}`, title);
-        }
-
-        function updateTaskStatus(id, newStatus) {
-            const task = tasks.find(t => t.id === id);
-            if (task) {
-                task.status = newStatus;
-                renderWidgetTasks();
-                renderAdminTable();
-
-                if (newStatus === 'Done') {
-                    showWindowsToastNotification("Tugas Selesai!", `"${task.title}" telah ditandai selesai oleh ${task.assignee}.`);
-                }
-            }
-        }
-
-        function deleteTask(id) {
-            tasks = tasks.filter(t => t.id !== id);
-            renderWidgetTasks();
-            renderAdminTable();
-        }
-
-        // Tone.js Sound Alert Trigger
-        function playNotificationSound() {
-            if (!soundEnabled) return;
-            try {
-                const synth = new Tone.Synth().toDestination();
-                const now = Tone.now();
-                // Play a friendly dual-tone chime (Windows Notification sound style)
-                synth.triggerAttackRelease("C5", "8n", now);
-                synth.triggerAttackRelease("G5", "8n", now + 0.15);
-            } catch (err) {
-                console.log("Audio play blocked by browser interaction policy");
-            }
-        }
-
-        function toggleSoundSetting() {
-            soundEnabled = document.getElementById('toggle-sound').checked;
-        }
-
-        // Simulated Windows 11 Native Toast Notification Popup
-        function showWindowsToastNotification(title, message) {
-            const isToastEnabled = document.getElementById('toggle-toast').checked;
-            if (!isToastEnabled) return;
-
-            const container = document.getElementById('toast-container');
-            const toastId = 'toast-' + Date.now();
-
-            const toastHTML = `
-                <div id="${toastId}" class="toast-notification pointer-events-auto w-80 bg-slate-900/95 border border-slate-700/80 rounded-xl p-3.5 shadow-2xl backdrop-blur-md flex items-start gap-3 text-slate-100">
-                    <div class="p-2 bg-blue-600 text-white rounded-lg flex-shrink-0">
-                        <i data-lucide="bell-ring" class="w-4 h-4"></i>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex justify-between items-center mb-0.5">
-                            <span class="text-[11px] font-semibold text-blue-400">TaskSync Windows Notification</span>
-                            <span class="text-[10px] text-slate-400">Baru saja</span>
-                        </div>
-                        <h5 class="text-xs font-bold text-white truncate">${title}</h5>
-                        <p class="text-[11px] text-slate-300 mt-0.5 line-clamp-2">${message}</p>
-                    </div>
-                    <button onclick="removeToast('${toastId}')" class="text-slate-400 hover:text-white transition-all">
-                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                    </button>
-                </div>
-            `;
-
-            container.insertAdjacentHTML('beforeend', toastHTML);
-            lucide.createIcons();
-
-            // Auto dismiss toast after 5 seconds
-            setTimeout(() => {
-                removeToast(toastId);
-            }, 5000);
-        }
-
-        function removeToast(toastId) {
-            const el = document.getElementById(toastId);
-            if (el) {
-                el.style.opacity = '0';
-                el.style.transform = 'translateX(100%)';
-                el.style.transition = 'all 0.3s ease';
-                setTimeout(() => el.remove(), 300);
-            }
-        }
-
-        function triggerSampleNotification() {
-            playNotificationSound();
-            showWindowsToastNotification(
-                "Tugas Urgent dari Atasan",
-                "Revisi desain presentasi klien sebelum meeting pukul 15:00!"
-            );
-        }
-
-        function copyCode(elementId) {
-            const codeText = document.getElementById(elementId).innerText;
-            navigator.clipboard.writeText(codeText).then(() => {
-                showWindowsToastNotification("Kode Berhasil Disalin", "Skrip main.js telah disalin ke clipboard Anda.");
-            });
-        }
-    </script>
+  </script>
 </body>
 </html>
