@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel - Kelola Tugas</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #0f172a; color: white; max-width: 500px; margin: auto; }
+    input, button { padding: 10px; margin-top: 8px; width: 100%; box-sizing: border-box; border-radius: 6px; border: none; }
+    input { background: #1e293b; color: white; border: 1px solid #334155; }
+    button { background: #3b82f6; color: white; font-weight: bold; cursor: pointer; }
+    .card { background: #1e293b; padding: 15px; border-radius: 8px; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h2>Panel Atasan - Kirim Tugas</h2>
+  <div class="card">
+    <input type="text" id="taskText" placeholder="Ketik deskripsi tugas...">
+    <input type="text" id="assignee" placeholder="Nama karyawan (Opsional)">
+    <button onclick="addTask()">Kirim Tugas ke Desktop Karyawan</button>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script>
+    // SALIN FIREBASE CONFIG SAMA DENGAN WIDGET.HTML
+    const firebaseConfig = {
+      apiKey: "PASTE_API_KEY_ANDA",
+      authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
+      databaseURL: "https://PASTE_PROJECT_ID-default-rtdb.firebaseio.com",
+      projectId: "PASTE_PROJECT_ID",
+      storageBucket: "PASTE_PROJECT_ID.appspot.com",
+      messagingSenderId: "...",
+      appId: "..."
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    function addTask() {
+      const text = document.getElementById('taskText').value;
+      const assignee = document.getElementById('assignee').value;
+      if(!text) return alert("Isi deskripsi tugas!");
+
+      db.ref('tasks').push({
+        text: text,
+        assignee: assignee || 'Semua',
+        status: 'pending',
+        timestamp: Date.now()
+      });
+      document.getElementById('taskText').value = '';
+    }
+  </script>
+</body>
+</html>
